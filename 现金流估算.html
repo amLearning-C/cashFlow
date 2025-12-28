@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>流动现金预估 - 精简版</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #4a90e2; --income: #2ecc71; --expense: #e74c3c;
+            --bg: #f5f7fa; --card: #ffffff; --text: #2d3748;
+        }
+
+        body { font-family: -apple-system, "SF Pro Text", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        /* 容器宽度缩小，更加紧凑 */
+        .container { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 300px 1fr; gap: 15px; }
+        
+        .panel { background: var(--card); padding: 15px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); height: fit-content; }
+        h3 { margin: 0 0 12px 0; font-size: 1em; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid #edf2f7; padding-bottom: 6px; }
+        
+        .input-group { margin-bottom: 10px; }
+        label { display: block; font-size: 12px; color: #718096; margin-bottom: 3px; }
+        input { width: 100%; padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 5px; box-sizing: border-box; font-size: 13px; outline: none; }
+        input:focus { border-color: var(--primary); }
+        
+        .btn-row { display: flex; gap: 5px; margin-top: 5px; }
+        button { flex: 1; padding: 8px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: 500; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: #f7fafc; border: 1px solid #e2e8f0; color: #4a5568; }
+        button:hover { filter: brightness(0.95); }
+
+        /* 日历导航还原 */
+        .calendar-header { display: flex; align-items: center; justify-content: center; gap: 30px; margin-bottom: 15px; }
+        .nav-arrow { background: none; border: none; font-size: 1.2em; color: var(--primary); cursor: pointer; padding: 5px 15px; width: auto; font-weight: bold; }
+        .nav-arrow:hover { background: #edf2ff; border-radius: 50%; }
+        #currentMonthLabel { font-size: 1.1em; font-weight: bold; margin: 0; min-width: 120px; text-align: center; }
+
+        /* 日历格子精简 */
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .weekday { text-align: center; color: #a0aec0; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .day-card { 
+            background: white; border-radius: 6px; padding: 6px; min-height: 70px; /* 降低高度 */
+            border: 1px solid #f1f5f9; position: relative; transition: 0.1s; 
+        }
+        .day-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(0,0,0,0.05); cursor: help; }
+        .day-card.today { background: #f0f7ff; border: 1.5px solid var(--primary); }
+        .date-num { font-size: 11px; color: #cbd5e0; margin-bottom: 4px; }
+        .balance { font-weight: bold; font-size: 0.95em; color: #1a202c; }
+        
+        .tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; width: 100%; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .tag-exp { background: #fff5f5; color: var(--expense); }
+        .tag-inc { background: #f0fff4; color: var(--income); }
+
+        /* 图表精简 */
+        .chart-section { margin-top: 15px; background: white; padding: 15px; border-radius: 10px; height: 250px; }
+
+        .item-list { margin-top: 10px; max-height: 150px; overflow-y: auto; list-style: none; padding: 0; border-top: 1px dashed #eee; }
+        .item-list li { padding: 6px 0; border-bottom: 1px solid #f7fafc; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+        .item-note { font-size: 10px; color: #a0aec0; display: block; }
+        .del { color: #cbd5e0; cursor: pointer; padding: 0 5px; }
+        .del:hover { color: var(--expense); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="panel">
+        <h3>💰 资产底数</h3>
+        <div class="input-group">
+            <label>当前总余额</label>
+            <input type="number" id="baseBalance" onchange="updateUI()">
+        </div>
+        <div class="input-group">
+            <label>每日保底开销</label>
+            <input type="number" id="dailyFixed" onchange="updateUI()">
+        </div>
+
+        <h3>📅 定期扣款</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin-bottom: 5px;">
+            <input type="number" id="mFixedAmt" placeholder="金额">
+            <input type="number" id="mFixedDay" placeholder="日期">
+        </div>
+        <input type="text" id="mFixedNote" placeholder="备注: 房租、宽带...">
+        <button class="btn-primary" onclick="addItem('monthly')">添加定期</button>
+        <ul id="mList" class="item-list"></ul>
+
+        <h3>📝 随机收支</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin-bottom: 5px;">
+            <input type="number" id="tAmt" placeholder="金额">
+            <input type="date" id="tDate">
+        </div>
+        <input type="text" id="tNote" placeholder="备注: 聚餐、奖金...">
+        <button class="btn-primary" onclick="addItem('trans')">录入一笔</button>
+        <ul id="tList" class="item-list"></ul>
+
+        <h3 style="margin-top:15px;">💾 数据管理</h3>
+        <div class="btn-row">
+            <button class="btn-outline" onclick="exportData()">备份</button>
+            <button class="btn-outline" onclick="document.getElementById('fileIn').click()">导入</button>
+        </div>
+        <input type="file" id="fileIn" style="display:none" onchange="importData(event)">
+        <button class="btn-outline" style="margin-top:8px; color: #ccc; font-size: 11px; border:none;" onclick="clearAll()">重置清空数据</button>
+    </div>
+
+    <div>
+        <div class="panel">
+            <div class="calendar-header">
+                <button class="nav-arrow" onclick="changeMonth(-1)">❮</button>
+                <h2 id="currentMonthLabel">2025年 12月</h2>
+                <button class="nav-arrow" onclick="changeMonth(1)">❯</button>
+            </div>
+            <div class="calendar-grid" id="calendar"></div>
+        </div>
+
+        <div class="chart-section">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const APP_VER = "4.1";
+    let store = JSON.parse(localStorage.getItem('cash_flow_v4')) || {
+        version: APP_VER,
+        config: { baseBalance: 3144, dailyFixed: 50 },
+        monthlyFixed: [],
+        transactions: []
+    };
+
+    let viewDate = new Date();
+    let myChart = null;
+
+    function save() {
+        store.config.baseBalance = parseFloat(document.getElementById('baseBalance').value) || 0;
+        store.config.dailyFixed = parseFloat(document.getElementById('dailyFixed').value) || 0;
+        localStorage.setItem('cash_flow_v4', JSON.stringify(store));
+    }
+
+    function addItem(type) {
+        if(type === 'monthly') {
+            const amt = parseFloat(document.getElementById('mFixedAmt').value);
+            const day = parseInt(document.getElementById('mFixedDay').value);
+            const note = document.getElementById('mFixedNote').value;
+            if(amt && day) {
+                store.monthlyFixed.push({ id: Date.now(), amt, day, note });
+                document.getElementById('mFixedAmt').value = '';
+                document.getElementById('mFixedNote').value = '';
+            }
+        } else {
+            const amt = parseFloat(document.getElementById('tAmt').value);
+            const date = document.getElementById('tDate').value;
+            const note = document.getElementById('tNote').value;
+            if(amt && date) {
+                store.transactions.push({ id: Date.now(), amt, date, note });
+                document.getElementById('tAmt').value = '';
+                document.getElementById('tNote').value = '';
+            }
+        }
+        updateUI();
+    }
+
+    function deleteItem(type, id) {
+        if(type === 'm') store.monthlyFixed = store.monthlyFixed.filter(i => i.id !== id);
+        else store.transactions = store.transactions.filter(i => i.id !== id);
+        updateUI();
+    }
+
+    function updateUI() {
+        save();
+        renderCalendar();
+        renderChart();
+        renderLists();
+    }
+
+    function renderCalendar() {
+        const cal = document.getElementById('calendar');
+        cal.innerHTML = '';
+        const y = viewDate.getFullYear(), m = viewDate.getMonth();
+        document.getElementById('currentMonthLabel').innerText = `${y}年 ${m + 1}月`;
+
+        ['日','一','二','三','四','五','六'].forEach(d => cal.innerHTML += `<div class="weekday">${d}</div>`);
+        
+        const firstDay = new Date(y, m, 1).getDay();
+        const totalDays = new Date(y, m + 1, 0).getDate();
+        for(let i=0; i<firstDay; i++) cal.innerHTML += `<div></div>`;
+
+        let runningBalance = store.config.baseBalance;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // 核心计算逻辑
+        for(let d=1; d<=totalDays; d++) {
+            const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            runningBalance -= store.config.dailyFixed;
+
+            let dayChanges = [];
+            store.monthlyFixed.forEach(f => { if(f.day === d) { runningBalance -= f.amt; dayChanges.push({amt: -f.amt, note: f.note || '固定'}); } });
+            store.transactions.forEach(t => { if(t.date === dateStr) { runningBalance += t.amt; dayChanges.push({amt: t.amt, note: t.note || '变动'}); } });
+
+            // 悬浮明细：显示每一条备注
+            const tooltip = `【${d}日明细】\n日常: -${store.config.dailyFixed}\n` + 
+                (dayChanges.length > 0 ? dayChanges.map(c => `${c.amt > 0 ? '+' : ''}${c.amt}: ${c.note}`).join('\n') : "(无额外变动)");
+
+            const isToday = dateStr === todayStr ? 'today' : '';
+            const dayTotal = dayChanges.reduce((sum, c) => sum + c.amt, 0);
+
+            cal.innerHTML += `
+                <div class="day-card ${isToday}" title="${tooltip}">
+                    <div class="date-num">${d}</div>
+                    <div class="balance">¥${Math.round(runningBalance)}</div>
+                    <div class="change-list">
+                        ${dayTotal !== 0 ? `<span class="tag ${dayTotal>0?'tag-inc':'tag-exp'}">${dayTotal>0?'+':''}${dayTotal}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    function renderChart() {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        const y = viewDate.getFullYear(), m = viewDate.getMonth();
+        const totalDays = new Date(y, m + 1, 0).getDate();
+        let labels = [], dataPoints = [];
+        let balance = store.config.baseBalance;
+
+        for(let d=1; d<=totalDays; d++) {
+            const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            balance -= store.config.dailyFixed;
+            store.monthlyFixed.forEach(f => { if(f.day === d) balance -= f.amt; });
+            store.transactions.forEach(t => { if(t.date === dateStr) balance += t.amt; });
+            labels.push(d);
+            dataPoints.push(Math.round(balance));
+        }
+
+        if(myChart) myChart.destroy();
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: dataPoints,
+                    borderColor: '#4a90e2',
+                    backgroundColor: 'rgba(74, 144, 226, 0.05)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { 
+                    y: { ticks: { font: { size: 10 } }, grid: { color: '#f8fafc' } },
+                    x: { ticks: { font: { size: 10 } }, grid: { display: false } }
+                }
+            }
+        });
+    }
+
+    function renderLists() {
+        document.getElementById('mList').innerHTML = store.monthlyFixed.map(i => `
+            <li>
+                <div><b>${i.day}日: -${i.amt}</b><span class="item-note">${i.note}</span></div>
+                <span class="del" onclick="deleteItem('m', ${i.id})">✕</span>
+            </li>
+        `).join('');
+        document.getElementById('tList').innerHTML = store.transactions.slice(-5).reverse().map(i => `
+            <li>
+                <div><b>${i.date.slice(5)}: ${i.amt>0?'+':''}${i.amt}</b><span class="item-note">${i.note}</span></div>
+                <span class="del" onclick="deleteItem('t', ${i.id})">✕</span>
+            </li>
+        `).join('');
+    }
+
+    function exportData() {
+        const blob = new Blob([JSON.stringify(store, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cash_flow_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+    }
+
+    function importData(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if(imported.version) {
+                    store = imported;
+                    document.getElementById('baseBalance').value = store.config.baseBalance;
+                    document.getElementById('dailyFixed').value = store.config.dailyFixed;
+                    updateUI();
+                    alert("导入成功！");
+                }
+            } catch(err) { alert("文件解析失败"); }
+        };
+        reader.readAsText(file);
+    }
+
+    function clearAll() { if(confirm("确定要永久清空所有数据吗？")) { localStorage.clear(); location.reload(); } }
+    function changeMonth(step) { viewDate.setMonth(viewDate.getMonth() + step); updateUI(); }
+
+    // 初始化
+    document.getElementById('baseBalance').value = store.config.baseBalance;
+    document.getElementById('dailyFixed').value = store.config.dailyFixed;
+    updateUI();
+</script>
+
+</body>
+</html>
