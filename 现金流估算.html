@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>流动现金 - 直观对账版</title>
+    <title>流动现金 - 点击交互版</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -31,17 +31,17 @@
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
         .weekday { text-align: center; color: #a0aec0; font-size: 11px; font-weight: bold; padding-bottom: 5px; }
         
+        /* 日历卡片样式 */
         .day-card { 
             background: white; border-radius: 6px; padding: 6px; min-height: 75px; 
-            border: 1px solid #f1f5f9; position: relative; transition: 0.2s;
+            border: 1px solid #f1f5f9; position: relative; transition: 0.2s; cursor: pointer; /* 鼠标变为手型 */
         }
+        .day-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: var(--primary); transform: translateY(-2px); }
         
-        /* 历史置灰 */
         .day-card.is-history { background: #fafbfc; }
         .day-card.is-history .balance { color: var(--muted); font-weight: normal; }
         .day-card.is-history .tag { opacity: 0.4; }
 
-        /* 锚点与今天 */
         .day-card.is-anchor { border: 2px solid #5cb85c; background: #f0fff4; }
         .day-card.is-anchor::after { content: "锚点"; position: absolute; top: 4px; right: 4px; font-size: 8px; background: #5cb85c; color: white; padding: 1px 3px; border-radius: 3px; }
         .day-card.is-today { border: 2px solid var(--primary); }
@@ -50,7 +50,6 @@
         .date-num { font-size: 11px; color: #cbd5e0; margin-bottom: 4px; }
         .balance { font-weight: bold; font-size: 0.95em; color: #1a202c; }
         
-        /* 红绿标签样式还原 */
         .tag { font-size: 10px; padding: 2px 4px; border-radius: 3px; display: block; margin-top: 3px; font-weight: bold; text-align: center; }
         .tag-plus { color: var(--income); background: rgba(46, 204, 113, 0.1); }
         .tag-minus { color: var(--expense); background: rgba(231, 76, 60, 0.1); }
@@ -59,9 +58,38 @@
         .item-list { margin-top: 8px; max-height: 120px; overflow-y: auto; list-style: none; padding: 0; font-size: 11px; }
         .item-list li { padding: 5px 0; border-bottom: 1px solid #f7fafc; display: flex; justify-content: space-between; align-items: center; }
         .del-x { color: #ccc; cursor: pointer; padding-left: 10px; }
+        
+        /* 弹窗样式 */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 100; justify-content: center; align-items: center; }
+        .modal-box { background: white; width: 320px; padding: 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: popIn 0.2s ease-out; }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; }
+        .modal-title { font-weight: bold; font-size: 1.1em; }
+        .close-btn { font-size: 24px; color: #999; cursor: pointer; line-height: 20px; }
+        .modal-list { background: #f8fafc; border-radius: 8px; padding: 10px; margin-bottom: 15px; max-height: 150px; overflow-y: auto; }
+        .modal-item { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #eee; }
+        .modal-item:last-child { border-bottom: none; }
+        .modal-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; margin-bottom: 8px; font-size: 14px; }
     </style>
 </head>
 <body>
+
+<div id="dayModal" class="modal-overlay" onclick="if(event.target===this) closeModal()">
+    <div class="modal-box">
+        <div class="modal-header">
+            <span id="modalDateTitle" class="modal-title">2025-12-01</span>
+            <span class="close-btn" onclick="closeModal()">×</span>
+        </div>
+        <div id="modalContentList" class="modal-list">
+            </div>
+        <div style="border-top: 1px solid #eee; padding-top: 15px;">
+            <label style="margin-bottom:8px;">添加新记录 (负数为支出)</label>
+            <input type="number" id="mModAmt" class="modal-input" placeholder="金额 (例如: -50 或 200)">
+            <input type="text" id="mModNote" class="modal-input" placeholder="备注 (例如: 奶茶)">
+            <button class="btn-primary" onclick="saveFromModal()">保存记录</button>
+        </div>
+    </div>
+</div>
 
 <div class="container">
     <div class="panel">
@@ -120,7 +148,7 @@
 </div>
 
 <script>
-    const APP_VER = "5.2";
+    const APP_VER = "5.3";
     const todayStr = new Date().toLocaleDateString('sv-SE');
 
     let store = JSON.parse(localStorage.getItem('cash_flow_v5')) || {
@@ -132,7 +160,9 @@
 
     let viewDate = new Date();
     let myChart = null;
+    let currentModalDate = ""; // 记录当前打开弹窗的日期
 
+    // --- 核心计算 ---
     function getBalanceAtDate(targetDateStr) {
         const target = new Date(targetDateStr);
         const base = new Date(store.config.baseDate);
@@ -194,16 +224,14 @@
             const isAnchor = dateStr === store.config.baseDate;
             const isToday = dateStr === todayStr;
 
-            // 计算当天净变动（排除日常开销，仅显示手动录入项和固定项）
             let netChange = 0;
-            let details = [];
-            store.monthlyFixed.forEach(f => { if(f.day === d) { netChange -= f.amt; details.push(`固定: -${f.amt} (${f.note||'无'})`); } });
-            store.transactions.forEach(t => { if(t.date === dateStr) { netChange += t.amt; details.push(`变动: ${t.amt>0?'+':''}${t.amt} (${t.note||'无'})`); } });
+            store.monthlyFixed.forEach(f => { if(f.day === d) netChange -= f.amt; });
+            store.transactions.forEach(t => { if(t.date === dateStr) netChange += t.amt; });
             
-            const tooltip = `【${dateStr}】\n预计结余: ¥${Math.round(balance)}\n日常消耗: -${store.config.dailyFixed}\n` + (details.join('\n') || "无录入记录");
-
+            // 点击事件绑定 openModal
             cal.innerHTML += `
-                <div class="day-card ${isHistory ? 'is-history' : ''} ${isAnchor ? 'is-anchor' : ''} ${isToday ? 'is-today' : ''}" title="${tooltip}">
+                <div class="day-card ${isHistory ? 'is-history' : ''} ${isAnchor ? 'is-anchor' : ''} ${isToday ? 'is-today' : ''}" 
+                     onclick="openModal('${dateStr}')">
                     <div class="date-num">${d}</div>
                     <div class="balance">¥${Math.round(balance)}</div>
                     ${netChange !== 0 ? `<span class="tag ${netChange > 0 ? 'tag-plus' : 'tag-minus'}">${netChange > 0 ? '+' : ''}${netChange}</span>` : ''}
@@ -212,6 +240,73 @@
         }
     }
 
+    // --- 弹窗逻辑 ---
+    function openModal(dateStr) {
+        currentModalDate = dateStr;
+        document.getElementById('modalDateTitle').innerText = dateStr;
+        document.getElementById('mModAmt').value = '';
+        document.getElementById('mModNote').value = '';
+        renderModalList();
+        document.getElementById('dayModal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('dayModal').style.display = 'none';
+    }
+
+    function renderModalList() {
+        const listDiv = document.getElementById('modalContentList');
+        listDiv.innerHTML = '';
+        const dayNum = parseInt(currentModalDate.split('-')[2]);
+
+        // 1. 显示固定支出 (只读)
+        let hasContent = false;
+        store.monthlyFixed.forEach(f => {
+            if(f.day === dayNum) {
+                hasContent = true;
+                listDiv.innerHTML += `
+                    <div class="modal-item" style="color:#666">
+                        <span>固定: ${f.note || '定期扣款'}</span>
+                        <span>-${f.amt}</span>
+                    </div>`;
+            }
+        });
+
+        // 2. 显示并管理临时记录
+        store.transactions.forEach(t => {
+            if(t.date === currentModalDate) {
+                hasContent = true;
+                listDiv.innerHTML += `
+                    <div class="modal-item">
+                        <span>${t.note || '未命名'}</span>
+                        <span>
+                            <b>${t.amt > 0 ? '+' : ''}${t.amt}</b>
+                            <span class="del-x" style="color:red; margin-left:10px" onclick="deleteFromModal(${t.id})">✕</span>
+                        </span>
+                    </div>`;
+            }
+        });
+
+        if(!hasContent) listDiv.innerHTML = `<div style="text-align:center;color:#ccc;font-size:12px;padding:10px">暂无记录</div>`;
+    }
+
+    function saveFromModal() {
+        const amt = parseFloat(document.getElementById('mModAmt').value);
+        const note = document.getElementById('mModNote').value;
+        if(amt && currentModalDate) {
+            store.transactions.push({ id: Date.now(), amt, date: currentModalDate, note });
+            renderModalList(); // 刷新列表
+            updateUI(); // 刷新背景大UI
+        }
+    }
+
+    function deleteFromModal(id) {
+        store.transactions = store.transactions.filter(t => t.id !== id);
+        renderModalList();
+        updateUI();
+    }
+
+    // --- 图表与常规逻辑 ---
     function renderChart() {
         const ctx = document.getElementById('trendChart').getContext('2d');
         const y = viewDate.getFullYear(), m = viewDate.getMonth();
