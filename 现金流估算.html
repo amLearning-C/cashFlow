@@ -316,6 +316,14 @@
             labels.push(d);
             dataPoints.push(Math.round(getBalanceAtDate(new Date(y, m, d).toLocaleDateString('sv-SE'))));
         }
+        
+        // 计算Y轴范围：动态适配数据，但保证最小缓冲区避免过度缩放
+        const dataMin = Math.min(...dataPoints);
+        const dataMax = Math.max(...dataPoints);
+        const buffer = Math.max(200, store.config.baseBalance * 0.15); // 最小200或锚点余额的15%
+        const yMin = Math.max(0, Math.floor((dataMin - buffer) / 100) * 100);
+        const yMax = Math.ceil((dataMax + buffer) / 100) * 100;
+        
         if(myChart) myChart.destroy();
         myChart = new Chart(ctx, {
             type: 'line',
@@ -329,8 +337,8 @@
                 plugins: { legend: { display: false } }, 
                 scales: { 
                     y: { 
-                        min: 0,
-                        max: Math.max(5000, Math.ceil(store.config.baseBalance * 1.5 / 1000) * 1000),
+                        min: yMin,
+                        max: yMax,
                         ticks: { font: { size: 10 } } 
                     }, 
                     x: { ticks: { font: { size: 10 } } } 
