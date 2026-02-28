@@ -323,7 +323,19 @@
                 labels: labels,
                 datasets: [{ data: dataPoints, borderColor: '#4a90e2', tension: 0.3, pointRadius: 0, fill: false, borderWidth: 2 }]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                plugins: { legend: { display: false } }, 
+                scales: { 
+                    y: { 
+                        min: 0,
+                        max: Math.max(5000, Math.ceil(store.config.baseBalance * 1.5 / 1000) * 1000),
+                        ticks: { font: { size: 10 } } 
+                    }, 
+                    x: { ticks: { font: { size: 10 } } } 
+                } 
+            }
         });
     }
 
